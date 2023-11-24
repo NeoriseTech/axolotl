@@ -1,10 +1,14 @@
 """Module containing the SimpleShareGPTPromptTokenizingStrategy class"""
 from typing import Any, Dict, Optional
 
-from fastchat.conversation import Conversation, SeparatorStyle, register_conv_template
+from fastchat.conversation import Conversation, conversations, SeparatorStyle, register_conv_template
 
 from axolotl.prompt_tokenizers import ShareGPTPromptTokenizingStrategy
 from axolotl.prompters import ShareGPTPrompterV2
+
+# MODIFIED FOR CUSTOM PROMPTING STYLE
+
+'''
 
 register_conv_template(
     Conversation(
@@ -15,8 +19,17 @@ register_conv_template(
         sep_style=SeparatorStyle.CHATML,
         sep="<|im_end|>\n",
     )
+'''
+register_conv_template( #TODO: add custom tokens for conditioning
+    conversations(
+        name="mistral_apm",
+        system_template="{system_message}",
+        system_message="You are a helpful assistant tasked with labelling english messages",
+        roles=["<classifier_input>", "<classifier_output>"],
+        sep_style=SeparatorStyle.NO_COLON_TWO,
+        sep="",
+    )
 )
-
 
 def load(tokenizer, cfg, ds_cfg: Optional[Dict[str, Any]] = None):
     conversation = (
