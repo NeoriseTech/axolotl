@@ -21,6 +21,7 @@ register_conv_template( #TODO: add custom tokens for conditioning
         roles=["<classifier_input>", "<classifier_output>"],
         sep_style=SeparatorStyle.NO_COLON_TWO,
         sep="",
+        sep2="</s>",
     )
 )
 

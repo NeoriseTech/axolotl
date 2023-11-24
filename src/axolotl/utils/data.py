@@ -506,9 +506,9 @@ def get_dataset_wrapper(
         dataset_wrapper = ds_wrapper
     elif d_base_type == "sharegpt":
         LOG.error(
-            f"Loading sharegpt with type: {config_dataset.type}, prompt style: {d_prompt_style} and conversation: {config_dataset.conversation}"
+            f"Loading sharegpt with type: {config_dataset.type}, prompt style: {d_prompt_style}, conversation: {config_dataset.conversation}, field_human: {config_dataset.field_human}, field_model: {config_dataset.field_model}"
         )
-        dataset_prompter = ShareGPTPrompter(d_prompt_style, config_dataset.conversation)
+        dataset_prompter = ShareGPTPrompter(d_prompt_style, config_dataset.conversation, config_dataset.field_human, config_dataset.field_model)
         ds_strategy = ShareGPTPromptTokenizingStrategy(
             dataset_prompter,
             tokenizer,
