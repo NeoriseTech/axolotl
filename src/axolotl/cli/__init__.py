@@ -327,9 +327,9 @@ def load_datasets(
             text_only=cli_args.debug_text_only,
         )
 
-        LOG.info("printing prompters...")
-        for prompter in prompters:
-            LOG.info(prompter)
+#        LOG.info("printing prompters...")
+#        for prompter in prompters:
+#            LOG.info(prompter)
 
     return TrainDatasetMeta(
         train_dataset=train_dataset,
