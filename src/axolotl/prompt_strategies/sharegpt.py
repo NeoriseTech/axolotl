@@ -6,9 +6,6 @@ from fastchat.conversation import Conversation, conversations, SeparatorStyle, r
 from axolotl.prompt_tokenizers import ShareGPTPromptTokenizingStrategy
 from axolotl.prompters import ShareGPTPrompterV2
 
-# MODIFIED FOR CUSTOM PROMPTING STYLE
-
-'''
 
 register_conv_template(
     Conversation(
@@ -19,7 +16,7 @@ register_conv_template(
         sep_style=SeparatorStyle.CHATML,
         sep="<|im_end|>\n",
     )
-'''
+
 register_conv_template( #TODO: add custom tokens for conditioning
     conversations(
         name="mistral_apm",

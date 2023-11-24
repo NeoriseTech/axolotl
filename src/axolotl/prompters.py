@@ -5,11 +5,24 @@ from enum import Enum
 from typing import Generator, Optional, Union
 
 from colorama import Fore
-from fastchat.conversation import Conversation, get_conv_template
+from fastchat.conversation import Conversation, get_conv_template, SeparatorStyle, register_conv_template
 
 LOG = logging.getLogger("axolotl")
 IGNORE_TOKEN_ID = -100
 REPR_TEMPLATE = "\n<start>\n" + Fore.CYAN + "{full_prompt}" + Fore.RESET + "\n<end>\n"
+
+
+
+register_conv_template( #TODO: add custom tokens for conditioning
+    Conversation(
+        name="mistral_apm",
+        system_template="{system_message}",
+        system_message="You are a helpful assistant tasked with labelling english messages",
+        roles=["<classifier_input>", "<classifier_output>"],
+        sep_style=SeparatorStyle.NO_COLON_TWO,
+        sep="",
+    )
+)
 
 
 class PromptStyle(Enum):

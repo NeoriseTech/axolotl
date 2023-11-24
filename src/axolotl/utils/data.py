@@ -27,6 +27,7 @@ from axolotl.prompt_tokenizers import (
     JeopardyPromptTokenizingStrategy,
     OpenAssistantPromptTokenizingStrategy,
     SummarizeTLDRPromptTokenizingStrategy,
+    ShareGPTPromptTokenizingStrategy,
 )
 from axolotl.prompters import (
     AlpacaPrompter,
@@ -38,6 +39,7 @@ from axolotl.prompters import (
     ReflectAlpacaPrompter,
     SummarizeTLDRPrompter,
     UnsupportedPrompter,
+    ShareGPTPrompter,
 )
 from axolotl.utils.dict import DictDefault
 from axolotl.utils.distributed import is_main_process, zero_first
@@ -493,6 +495,21 @@ def get_dataset_wrapper(
     elif d_base_type == "alpaca":
         dataset_prompter = AlpacaPrompter(d_prompt_style)
         ds_strategy = AlpacaPromptTokenizingStrategy(
+            dataset_prompter,
+            tokenizer,
+            cfg.train_on_inputs,
+            cfg.sequence_len,
+        )
+        ds_wrapper = TokenizedPromptDataset(
+            ds_strategy, dataset, process_count=cfg.dataset_processes
+        )
+        dataset_wrapper = ds_wrapper
+    elif d_base_type == "sharegpt":
+        LOG.error(
+            f"Loading sharegpt with type: {config_dataset.type}, prompt style: {d_prompt_style} and conversation: {config_dataset.conversation}"
+        )
+        dataset_prompter = ShareGPTPrompter(d_prompt_style, config_dataset.conversation)
+        ds_strategy = ShareGPTPromptTokenizingStrategy(
             dataset_prompter,
             tokenizer,
             cfg.train_on_inputs,
