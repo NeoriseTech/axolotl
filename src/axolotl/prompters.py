@@ -13,10 +13,10 @@ REPR_TEMPLATE = "\n<start>\n" + Fore.CYAN + "{full_prompt}" + Fore.RESET + "\n<e
 
 
 
-register_conv_template( #TODO: add custom tokens for conditioning
+register_conv_template(
     Conversation(
         name="mistral_apm",
-        system_template="{system_message}",
+        system_template="<classifier_prompt>{system_message}",
         system_message="You are a helpful assistant tasked with labelling english messages",
         roles=["<classifier_input>", "<classifier_output>"],
         sep_style=SeparatorStyle.NO_COLON_TWO,
