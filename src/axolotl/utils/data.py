@@ -39,7 +39,7 @@ from axolotl.prompters import (
     ReflectAlpacaPrompter,
     SummarizeTLDRPrompter,
     UnsupportedPrompter,
-    ShareGPTPrompter,
+    ShareGPTPrompterV2,
 )
 from axolotl.utils.dict import DictDefault
 from axolotl.utils.distributed import is_main_process, zero_first
@@ -508,7 +508,7 @@ def get_dataset_wrapper(
         LOG.info(
             f"Loading sharegpt with type: {config_dataset.type}, prompt style: {d_prompt_style}, conversation: {config_dataset.conversation}, field_human: {config_dataset.field_human}, field_model: {config_dataset.field_model}"
         )
-        dataset_prompter = ShareGPTPrompter(d_prompt_style, config_dataset.conversation, config_dataset.field_human, config_dataset.field_model)
+        dataset_prompter = ShareGPTPrompterV2(config_dataset.conversation, config_dataset.field_human, config_dataset.field_model)
         ds_strategy = ShareGPTPromptTokenizingStrategy(
             dataset_prompter,
             tokenizer,
