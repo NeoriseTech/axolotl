@@ -22,6 +22,7 @@ from transformers import EarlyStoppingCallback, Trainer, TrainingArguments
 from transformers.trainer_utils import seed_worker
 
 from axolotl.monkeypatch.relora import ReLoRACallback, ReLoRAScheduler
+from axolotl.utils import metrics
 from axolotl.utils.callbacks import (
     EvalFirstStepCallback,
     GPUStatsCallback,
@@ -611,12 +612,11 @@ class HFCausalTrainerBuilder(TrainerBuilderBase):
             training_arguments_kwargs["do_bench_eval"] = self.cfg.do_bench_eval
             if self.cfg.bench_dataset:
                 training_arguments_kwargs["bench_dataset"] = self.cfg.bench_dataset
+        eval_metric = None
         if self.cfg.metric_for_best_model:
-            training_arguments_kwargs[
-                "metric_for_best_model"
-            ] = self.cfg.metric_for_best_model
-        if self.cfg.greater_is_better:
-            training_arguments_kwargs["greater_is_better"] = self.cfg.greater_is_better
+            eval_metric = metrics.get_metric(self.cfg.metric_for_best_model, self.tokenizer)
+            training_arguments_kwargs["metric_for_best_model"] = eval_metric.metric_name
+            training_arguments_kwargs["greater_is_better"] = eval_metric.optimize_higher
 
         if self.cfg.torch_compile:
             if torch.__version__ < "2.1.0":  # pylint: disable=protected-access
@@ -756,6 +756,11 @@ class HFCausalTrainerBuilder(TrainerBuilderBase):
                     batched=False,
                     num_proc=32,
                 )
+
+        if eval_metric:
+            trainer_kwargs["compute_metrics"] = eval_metric.compute_metrics
+            if eval_metric.preprocess_logits:
+                trainer_kwargs["preprocess_logits_for_metrics"] = eval_metric.preprocess_logits_for_metrics
 
         trainer_cls = self._get_trainer_cls()
         trainer_kwargs, trainer_cls = self.hook_pre_create_trainer(
