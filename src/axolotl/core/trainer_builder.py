@@ -25,12 +25,16 @@ from axolotl.monkeypatch.relora import ReLoRACallback, ReLoRAScheduler
 from axolotl.utils.callbacks import (
     EvalFirstStepCallback,
     GPUStatsCallback,
+    LossWatchDogCallback,
     SaveAxolotlConfigtoWandBCallback,
     SaveBetterTransformerModelCallback,
     bench_eval_callback_factory,
     log_prediction_callback_factory,
 )
-from axolotl.utils.collators import BatchSamplerDataCollatorForSeq2Seq
+from axolotl.utils.collators import (
+    BatchSamplerDataCollatorForSeq2Seq,
+    MambaDataCollator,
+)
 from axolotl.utils.samplers import MultipackBatchSampler
 from axolotl.utils.schedulers import get_cosine_schedule_with_quadratic_warmup
 
@@ -48,6 +52,9 @@ class AxolotlTrainingArguments(TrainingArguments):
     Extend the base TrainingArguments for axolotl helpers
     """
 
+    model_type: Optional[str] = field(
+        default=None, metadata={"help": "HF model configuration model_type."}
+    )
     lr_quadratic_warmup: bool = field(
         default=False,
         metadata={"help": "Use quadratic warmup for cosine scheduling."},
@@ -284,6 +291,32 @@ class AxolotlTrainer(Trainer):
         return super().compute_loss(model, inputs, return_outputs=return_outputs)
 
 
+class AxolotlMambaTrainer(AxolotlTrainer):
+    """
+    Mamba specific trainer to handle loss calculation
+    """
+
+    def compute_loss(
+        self,
+        model,
+        inputs,
+        return_outputs=False,  # pylint: disable=unused-argument
+    ):
+        input_ids = inputs.pop("input_ids")
+        lm_logits = model(input_ids).logits
+
+        labels = input_ids.to(lm_logits.device)
+        shift_logits = lm_logits[:, :-1, :].contiguous()
+        labels = labels[:, 1:].contiguous()
+
+        loss_fct = torch.nn.CrossEntropyLoss()
+        lm_loss = loss_fct(
+            shift_logits.view(-1, shift_logits.size(-1)), labels.view(-1)
+        )
+
+        return lm_loss
+
+
 class OneCycleLRSchedulerTrainer(AxolotlTrainer):
     """
     Trainer subclass that uses the OneCycleLR scheduler
@@ -430,6 +463,9 @@ class HFCausalTrainerBuilder(TrainerBuilderBase):
                 SaveAxolotlConfigtoWandBCallback(self.cfg.axolotl_config_path)
             )
 
+        if self.cfg.loss_watchdog_threshold is not None:
+            callbacks.append(LossWatchDogCallback(self.cfg))
+
         return callbacks
 
     def get_post_trainer_create_callbacks(self, trainer):
@@ -458,14 +494,19 @@ class HFCausalTrainerBuilder(TrainerBuilderBase):
             return OneCycleLRSchedulerTrainer
         if self.cfg.relora_steps:
             return ReLoRATrainer
+        if self.cfg.model_config_type == "mamba":
+            return AxolotlMambaTrainer
         return AxolotlTrainer
 
     def build(self, total_num_steps):
-        warmup_steps = (
-            self.cfg.warmup_steps
-            if self.cfg.warmup_steps is not None
-            else min(int(0.03 * total_num_steps), 100)
-        )
+        warmup_steps = None
+        if self.cfg.warmup_steps is not None:
+            warmup_steps = self.cfg.warmup_steps
+        elif self.cfg.warmup_ratio is not None:
+            warmup_steps = max(int(self.cfg.warmup_ratio * total_num_steps), 0)
+        else:
+            warmup_steps = min(int(0.03 * total_num_steps), 100)
+
         logging_steps = (
             self.cfg.logging_steps
             if self.cfg.logging_steps is not None
@@ -522,7 +563,7 @@ class HFCausalTrainerBuilder(TrainerBuilderBase):
             if self.cfg.hub_strategy:
                 training_arguments_kwargs["hub_strategy"] = self.cfg.hub_strategy
 
-        if self.cfg.save_safetensors:
+        if self.cfg.save_safetensors is not None:
             training_arguments_kwargs["save_safetensors"] = self.cfg.save_safetensors
 
         if self.cfg.sample_packing_eff_est:
@@ -543,16 +584,16 @@ class HFCausalTrainerBuilder(TrainerBuilderBase):
                 "dataloader_prefetch_factor"
             ] = self.cfg.dataloader_prefetch_factor
 
-        if self.cfg.eval_steps:
+        if self.cfg.val_set_size == 0:
+            # no eval set, so don't eval
+            training_arguments_kwargs["evaluation_strategy"] = "no"
+        elif self.cfg.eval_steps:
             training_arguments_kwargs["evaluation_strategy"] = "steps"
             training_arguments_kwargs["eval_steps"] = self.cfg.eval_steps
         elif self.cfg.evaluation_strategy:
             training_arguments_kwargs[
                 "evaluation_strategy"
             ] = self.cfg.evaluation_strategy
-        elif self.cfg.val_set_size == 0:
-            # no eval set, so don't eval
-            training_arguments_kwargs["evaluation_strategy"] = "no"
         else:
             # we have an eval set, but no steps defined, default to use epoch
             training_arguments_kwargs["evaluation_strategy"] = "epoch"
@@ -640,7 +681,7 @@ class HFCausalTrainerBuilder(TrainerBuilderBase):
         training_arguments_kwargs["group_by_length"] = self.cfg.group_by_length
         training_arguments_kwargs["report_to"] = "wandb" if self.cfg.use_wandb else None
         training_arguments_kwargs["run_name"] = (
-            self.cfg.wandb_run_id if self.cfg.use_wandb else None
+            self.cfg.wandb_name if self.cfg.use_wandb else None
         )
         training_arguments_kwargs["optim"] = (
             self.cfg.optimizer if self.cfg.optimizer else "adamw_hf"
@@ -658,7 +699,9 @@ class HFCausalTrainerBuilder(TrainerBuilderBase):
             self.cfg.sample_packing if self.cfg.sample_packing else False
         )
         training_arguments_kwargs["eval_sample_packing"] = (
-            self.cfg.sample_packing if self.cfg.sample_packing else False
+            self.cfg.sample_packing
+            if self.cfg.eval_sample_packing is not False
+            else False
         )
         training_arguments_kwargs[
             "sample_packing_seq_len_multiplier"
@@ -668,6 +711,7 @@ class HFCausalTrainerBuilder(TrainerBuilderBase):
         training_arguments_kwargs = self.hook_pre_create_training_args(
             training_arguments_kwargs
         )
+        training_arguments_kwargs["model_type"] = self.cfg.model_config_type
         training_args = (
             AxolotlTrainingArguments(  # pylint: disable=unexpected-keyword-arg
                 **training_arguments_kwargs,
@@ -722,11 +766,7 @@ class HFCausalTrainerBuilder(TrainerBuilderBase):
             train_dataset=self.train_dataset,
             eval_dataset=self.eval_dataset,
             args=training_args,
-            data_collator=BatchSamplerDataCollatorForSeq2Seq(
-                self.tokenizer,
-                return_tensors="pt",
-                **data_collator_kwargs,
-            ),
+            data_collator=self.build_collator(**data_collator_kwargs),
             bench_data_collator=transformers.DataCollatorForSeq2Seq(
                 self.tokenizer,
                 return_tensors="pt",
@@ -746,3 +786,13 @@ class HFCausalTrainerBuilder(TrainerBuilderBase):
             ] = self.cfg.micro_batch_size
 
         return trainer
+
+    def build_collator(self, **kwargs):
+        if self.cfg.model_config_type == "mamba":
+            return MambaDataCollator(tokenizer=self.tokenizer)
+
+        return BatchSamplerDataCollatorForSeq2Seq(
+            self.tokenizer,
+            return_tensors="pt",
+            **kwargs,
+        )

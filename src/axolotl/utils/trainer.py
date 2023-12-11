@@ -131,8 +131,10 @@ def process_datasets_for_packing(cfg, train_dataset, eval_dataset, tokenizer):
                     )
 
         # Phi doesn't want the attention_mask feature when training
-        if "CodeGenTokenizer" in tokenizer.__class__.__name__ or (
-            cfg.is_mistral_derived_model and cfg.flash_attention
+        if (
+            "CodeGenTokenizer" in tokenizer.__class__.__name__
+            or (cfg.is_mistral_derived_model and cfg.flash_attention)
+            or cfg.model_config_type == "mamba"
         ):
             train_dataset = train_dataset.remove_columns("attention_mask")
             if eval_dataset:
@@ -141,32 +143,37 @@ def process_datasets_for_packing(cfg, train_dataset, eval_dataset, tokenizer):
     return train_dataset, eval_dataset
 
 
-def calculate_total_num_steps(cfg, train_dataset):
-    if cfg.sample_packing:
-        # we have to drop anything longer then sequence len otherwise
-        # flash attention with position ids fails
-        if not cfg.total_num_tokens:
-            total_num_tokens = np.sum(
-                train_dataset.data.column("input_ids")
-                .to_pandas()
-                .apply(lambda x: len(x))  # pylint: disable=unnecessary-lambda
-                .values
-            )
-            LOG.debug(f"total_num_tokens: {total_num_tokens}", main_process_only=True)
+def calculate_total_num_steps(cfg, train_dataset, update=True):
+    if not cfg.total_num_tokens:
+        total_num_tokens = np.sum(
+            train_dataset.data.column("input_ids")
+            .to_pandas()
+            .apply(lambda x: len(x))  # pylint: disable=unnecessary-lambda
+            .values
+        )
+        LOG.debug(f"total_num_tokens: {total_num_tokens}", main_process_only=True)
+        if update:
             cfg.total_num_tokens = total_num_tokens
 
-        if not cfg.total_supervised_tokens:
-            total_supervised_tokens = (
-                train_dataset.data.column("labels")
-                .to_pandas()
-                .apply(lambda x: np.sum(np.array(x) != -100))
-                .sum()
-            )
-            LOG.debug(
-                f"`total_supervised_tokens: {total_supervised_tokens}`",
-                main_process_only=True,
-            )
+    skip_estimates = cfg.model_config_type == "mamba"
+
+    if not skip_estimates and not cfg.total_supervised_tokens:
+        total_supervised_tokens = (
+            train_dataset.data.column("labels")
+            .to_pandas()
+            .apply(lambda x: np.sum(np.array(x) != -100))
+            .sum()
+        )
+        LOG.debug(
+            f"`total_supervised_tokens: {total_supervised_tokens}`",
+            main_process_only=True,
+        )
+        if update:
             cfg.total_supervised_tokens = total_supervised_tokens
+
+    if not skip_estimates and cfg.sample_packing:
+        # we have to drop anything longer then sequence len otherwise
+        # flash attention with position ids fails
 
         if cfg.sample_packing_eff_est:
             total_num_steps = (
@@ -231,7 +238,8 @@ def calculate_total_num_steps(cfg, train_dataset):
             sample_packing_eff_est = (
                 math.ceil(sample_packing_actual_eff_all * 100.0) / 100.0
             )
-            cfg.sample_packing_eff_est = sample_packing_eff_est
+            if update:
+                cfg.sample_packing_eff_est = sample_packing_eff_est
             LOG.debug(
                 f"sample_packing_eff_est: {cfg.sample_packing_eff_est}",
                 main_process_only=True,
@@ -263,12 +271,14 @@ def setup_fsdp_envs(cfg):
         ] = cfg.fsdp_config.fsdp_transformer_layer_cls_to_wrap
 
 
-def setup_trainer(cfg, train_dataset, eval_dataset, model, tokenizer, total_num_steps):
+def prepare_optim_env(cfg):
     if cfg.fsdp:
         setup_fsdp_envs(cfg)
     elif cfg.deepspeed:
         os.environ["ACCELERATE_USE_DEEPSPEED"] = "true"
 
+
+def setup_trainer(cfg, train_dataset, eval_dataset, model, tokenizer, total_num_steps):
     trainer_builder = HFCausalTrainerBuilder(cfg, model, tokenizer)
     trainer_builder.train_dataset = train_dataset
     trainer_builder.eval_dataset = eval_dataset

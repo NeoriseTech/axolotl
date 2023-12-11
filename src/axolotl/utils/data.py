@@ -79,6 +79,14 @@ def prepare_dataset(cfg, tokenizer):
         train_dataset, eval_dataset = process_datasets_for_packing(
             cfg, train_dataset, eval_dataset, tokenizer
         )
+
+    if eval_dataset and cfg.sample_packing and cfg.eval_sample_packing is not False:
+        total_eval_steps = calculate_total_num_steps(cfg, eval_dataset, update=False)
+        if total_eval_steps == 0:
+            raise ValueError(
+                "eval dataset split is too small for sample_packing. You should set `eval_sample_packing: False`. "
+            )
+
     if cfg.max_steps:
         total_num_steps = min(
             calculate_total_num_steps(cfg, train_dataset), cfg.max_steps
@@ -99,7 +107,12 @@ def load_tokenized_prepared_datasets(
                 str(cfg.sequence_len)
                 + "@"
                 + "|".join(
-                    sorted([f"{d.path}:{d.type}:{d.shards}" for d in cfg.datasets])
+                    sorted(
+                        [
+                            f"{d.path}:{d.type}:{d.shards}:{d.conversation}"
+                            for d in cfg.datasets
+                        ]
+                    )
                 )
                 + "|"
                 + tokenizer_name
@@ -165,6 +178,66 @@ def load_tokenized_prepared_datasets(
             except (FileNotFoundError, ConnectionError):
                 pass
 
+            ds_from_cloud = False
+            storage_options = {}
+            remote_file_system = None
+            if config_dataset.path.startswith("s3://"):
+                try:
+                    import aiobotocore.session  # type: ignore
+                    import s3fs  # type: ignore
+                except ImportError as exc:
+                    raise ImportError(
+                        "s3:// paths require aiobotocore and s3fs to be installed"
+                    ) from exc
+
+                # Takes credentials from ~/.aws/credentials for default profile
+                s3_session = aiobotocore.session.AioSession(profile="default")
+                storage_options = {"session": s3_session}
+                remote_file_system = s3fs.S3FileSystem(**storage_options)
+            elif config_dataset.path.startswith(
+                "gs://"
+            ) or config_dataset.path.startswith("gcs://"):
+                try:
+                    import gcsfs  # type: ignore
+                except ImportError as exc:
+                    raise ImportError(
+                        "gs:// or gcs:// paths require gcsfs to be installed"
+                    ) from exc
+
+                # gcsfs will use default credentials from the environment else anon
+                # https://gcsfs.readthedocs.io/en/latest/#credentials
+                storage_options = {"token": None}
+                remote_file_system = gcsfs.GCSFileSystem(**storage_options)
+            # TODO: Figure out how to get auth creds passed
+            # elif config_dataset.path.startswith("adl://") or config_dataset.path.startswith("abfs://"):
+            #     try:
+            #         import adlfs
+            #     except ImportError as exc:
+            #        raise ImportError(
+            #            "adl:// or abfs:// paths require adlfs to be installed"
+            #        ) from exc
+
+            #     # Gen 1
+            #     storage_options = {
+            #         "tenant_id": TENANT_ID,
+            #         "client_id": CLIENT_ID,
+            #         "client_secret": CLIENT_SECRET,
+            #     }
+            #     # Gen 2
+            #     storage_options = {
+            #         "account_name": ACCOUNT_NAME,
+            #         "account_key": ACCOUNT_KEY,
+            #     }
+
+            #     remote_file_system = adlfs.AzureBlobFileSystem(**storage_options)
+            try:
+                if remote_file_system and remote_file_system.exists(
+                    config_dataset.path
+                ):
+                    ds_from_cloud = True
+            except (FileNotFoundError, ConnectionError):
+                pass
+
             # prefer local dataset, even if hub exists
             local_path = Path(config_dataset.path)
             if local_path.exists():
@@ -178,17 +251,8 @@ def load_tokenized_prepared_datasets(
                         split=None,
                     )
                 elif local_path.is_file():
-                    ds_type = "json"
-                    if config_dataset.ds_type:
-                        ds_type = config_dataset.ds_type
-                    elif ".parquet" in config_dataset.path:
-                        ds_type = "parquet"
-                    elif ".arrow" in config_dataset.path:
-                        ds_type = "arrow"
-                    elif ".csv" in config_dataset.path:
-                        ds_type = "csv"
-                    elif ".txt" in config_dataset.path:
-                        ds_type = "text"
+                    ds_type = get_ds_type(config_dataset)
+
                     ds = load_dataset(
                         ds_type,
                         name=config_dataset.name,
@@ -208,6 +272,22 @@ def load_tokenized_prepared_datasets(
                     data_files=config_dataset.data_files,
                     token=use_auth_token,
                 )
+            elif ds_from_cloud and remote_file_system:
+                if remote_file_system.isdir(config_dataset.path):
+                    ds = load_from_disk(
+                        config_dataset.path,
+                        storage_options=storage_options,
+                    )
+                elif remote_file_system.isfile(config_dataset.path):
+                    ds_type = get_ds_type(config_dataset)
+                    ds = load_dataset(
+                        ds_type,
+                        name=config_dataset.name,
+                        data_files=config_dataset.path,
+                        streaming=False,
+                        split=None,
+                        storage_options=storage_options,
+                    )
             else:
                 if isinstance(config_dataset.data_files, str):
                     fp = hf_hub_download(
@@ -297,6 +377,24 @@ def load_tokenized_prepared_datasets(
                 )
 
     return dataset, prompters
+
+
+def get_ds_type(config_dataset: DictDefault):
+    """
+    Get the dataset type from the path if it's not specified
+    """
+    ds_type = "json"
+    if config_dataset.ds_type:
+        ds_type = config_dataset.ds_type
+    elif ".parquet" in config_dataset.path:
+        ds_type = "parquet"
+    elif ".arrow" in config_dataset.path:
+        ds_type = "arrow"
+    elif ".csv" in config_dataset.path:
+        ds_type = "csv"
+    elif ".txt" in config_dataset.path:
+        ds_type = "text"
+    return ds_type
 
 
 def load_prepare_datasets(

@@ -1,4 +1,4 @@
-base_model: PY007/TinyLlama-1.1B-step-50K-105b
+base_model: PY007/TinyLlama-1.1B-intermediate-step-715k-1.5T
 
 model_type: LlamaForCausalLM
 tokenizer_type: LlamaTokenizer
@@ -29,7 +29,7 @@ lora_fan_in_fan_out:
 wandb_project:
 wandb_entity:
 wandb_watch:
-wandb_run_id:
+wandb_name:
 wandb_log_model:
 
 gradient_accumulation_steps: 4

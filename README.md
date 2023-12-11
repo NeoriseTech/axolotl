@@ -25,8 +25,10 @@ Features:
 - [Installation](#installation)
   - [Docker](#docker)
   - [Conda/Pip venv](#condapip-venv)
+  - [Runpod](#runpod)
   - [LambdaLabs](#lambdalabs)
   - [Windows](#windows)
+  - [Launching on public clouds via SkyPilot](#launching-on-public-clouds-via-skypilot)
 - [Dataset](#dataset)
   - [How to Add Custom Prompts](#how-to-add-custom-prompts)
   - [How to Use Custom Pretokenized Dataset](#how-to-use-your-custom-pretokenized-dataset)
@@ -63,18 +65,21 @@ Features:
 
 ## Axolotl supports
 
-|          | fp16/fp32 | lora | qlora | gptq | gptq w/flash attn | flash attn | xformers attn |
-|----------|:----------|:-----|-------|------|-------------------|------------|--------------|
-| llama    | ✅         | ✅    | ✅     | ✅             | ✅                 | ✅          | ✅            |
-| Pythia   | ✅         | ✅    | ✅     | ❌             | ❌                 | ❌          | ❓            |
-| cerebras | ✅         | ✅    | ✅     | ❌             | ❌                 | ❌          | ❓            |
-| btlm     | ✅         | ✅    | ✅     | ❌             | ❌                 | ❌          | ❓            |
-| mpt      | ✅         | ❌    | ❓     | ❌             | ❌                 | ❌          | ❓            |
-| falcon   | ✅         | ✅    | ✅     | ❌             | ❌                 | ❌          | ❓            |
-| gpt-j    | ✅         | ✅    | ✅     | ❌             | ❌                 | ❓          | ❓            |
-| XGen     | ✅         | ❓    | ✅     | ❓             | ❓                 | ❓          | ✅            |
-| phi      | ✅         | ✅    | ✅     | ❓             | ❓                 | ❓          | ❓            |
-| RWKV     | ✅         | ❓    | ❓     | ❓             | ❓                 | ❓          | ❓            |
+|             | fp16/fp32 | lora | qlora | gptq | gptq w/flash attn | flash attn | xformers attn |
+|-------------|:----------|:-----|-------|------|-------------------|------------|--------------|
+| llama       | ✅         | ✅    | ✅     | ✅             | ✅                 | ✅          | ✅            |
+| Mistral     | ✅         | ✅    | ✅     | ✅             | ✅                 | ✅          | ✅            |
+| Mixtral-MoE | ✅         | ✅    | ✅     | ❓             | ❓                 | ❓          | ❓            |
+| Pythia      | ✅         | ✅    | ✅     | ❌             | ❌                 | ❌          | ❓            |
+| cerebras    | ✅         | ✅    | ✅     | ❌             | ❌                 | ❌          | ❓            |
+| btlm        | ✅         | ✅    | ✅     | ❌             | ❌                 | ❌          | ❓            |
+| mpt         | ✅         | ❌    | ❓     | ❌             | ❌                 | ❌          | ❓            |
+| falcon      | ✅         | ✅    | ✅     | ❌             | ❌                 | ❌          | ❓            |
+| gpt-j       | ✅         | ✅    | ✅     | ❌             | ❌                 | ❓          | ❓            |
+| XGen        | ✅         | ❓    | ✅     | ❓             | ❓                 | ❓          | ✅            |
+| phi         | ✅         | ✅    | ✅     | ❓             | ❓                 | ❓          | ❓            |
+| RWKV        | ✅         | ❓    | ❓     | ❓             | ❓                 | ❓          | ❓            |
+| Qwen        | ✅         | ✅    | ✅     | ❓             | ❓                 | ❓          | ❓            |
 
 
 ## Quickstart ⚡
@@ -83,14 +88,19 @@ Get started with Axolotl in just a few steps! This quickstart guide will walk yo
 
 **Requirements**: Python >=3.9 and Pytorch >=2.0.
 
+`pip3 install "axolotl[flash-attn,deepspeed] @ git+https://github.com/OpenAccess-AI-Collective/axolotl"`
+
+### For developers
 ```bash
 git clone https://github.com/OpenAccess-AI-Collective/axolotl
 cd axolotl
 
 pip3 install packaging
 pip3 install -e '.[flash-attn,deepspeed]'
-pip3 install -U git+https://github.com/huggingface/peft.git
+```
 
+### Usage
+```bash
 # finetune lora
 accelerate launch -m axolotl.cli.train examples/openllama-3b/lora.yml
 
@@ -111,7 +121,6 @@ accelerate launch -m axolotl.cli.inference examples/openllama-3b/lora.yml \
   ```bash
   docker run --gpus '"all"' --rm -it winglian/axolotl:main-py3.10-cu118-2.0.1
   ```
-  - `winglian/axolotl-runpod:main-latest`: for runpod or use this [direct link](https://runpod.io/gsc?template=v2ickqhz9s&ref=6i7fkpdz)
 
   Or run on the current files for development:
 
@@ -126,13 +135,15 @@ accelerate launch -m axolotl.cli.inference examples/openllama-3b/lora.yml \
   A more powerful Docker command to run would be this:
 
   ```bash
-  docker run --gpus '"all"' --rm -it --name axolotl --ipc=host --ulimit memlock=-1 --ulimit stack=67108864 --mount type=volume,src=axolotl,target=/workspace/axolotl -v ${HOME}/.cache/huggingface:/root/.cache/huggingface winglian/axolotl:main-py3.10-cu118-2.0.1
+  docker run --privileged --gpus '"all"' --shm-size 10g --rm -it --name axolotl --ipc=host --ulimit memlock=-1 --ulimit stack=67108864 --mount type=volume,src=axolotl,target=/workspace/axolotl -v ${HOME}/.cache/huggingface:/root/.cache/huggingface winglian/axolotl:main-py3.10-cu118-2.0.1
   ```
 
   It additionally:
   * Prevents memory issues when running e.g. deepspeed (e.g. you could hit SIGBUS/signal 7 error) through `--ipc` and `--ulimit` args.
   * Persists the downloaded HF data (models etc.) and your modifications to axolotl code through `--mount`/`-v` args.
   * The `--name` argument simply makes it easier to refer to the container in vscode (`Dev Containers: Attach to Running Container...`) or in your terminal.
+  * The `--privileged` flag gives all capabilities to the container.
+  * The `--shm-size 10g` argument increases the shared memory size. Use this if you see `exitcode: -7` errors using deepspeed.
 
   [More information on nvidia website](https://docs.nvidia.com/deeplearning/frameworks/user-guide/index.html#setincshmem)
 
@@ -153,6 +164,10 @@ accelerate launch -m axolotl.cli.inference examples/openllama-3b/lora.yml \
         huggingface-cli login
         ```
         Get the token at huggingface.co/settings/tokens
+
+#### Runpod
+
+Use `winglian/axolotl-runpod:main-latest` or use this [direct link](https://runpod.io/gsc?template=v2ickqhz9s&ref=6i7fkpdz)
 
 #### LambdaLabs
   <details>
@@ -201,6 +216,28 @@ accelerate launch -m axolotl.cli.inference examples/openllama-3b/lora.yml \
 #### Windows
 Please use WSL or Docker!
 
+
+#### Launching on public clouds via SkyPilot
+To launch on GPU instances (both on-demand and spot instances) on 7+ clouds (GCP, AWS, Azure, OCI, and more), you can use [SkyPilot](https://skypilot.readthedocs.io/en/latest/index.html):
+```bash
+pip install "skypilot-nightly[gcp,aws,azure,oci,lambda,kubernetes,ibm,scp]"  # choose your clouds
+sky check
+```
+Get the [example YAMLs](https://github.com/skypilot-org/skypilot/tree/master/llm/axolotl) of using Axolotl to finetune `mistralai/Mistral-7B-v0.1`:
+```
+git clone https://github.com/skypilot-org/skypilot.git
+cd skypilot/llm/axolotl
+```
+Use one command to launch:
+```bash
+# On-demand
+HF_TOKEN=xx sky launch axolotl.yaml --env HF_TOKEN
+
+# Managed spot (auto-recovery on preemption)
+HF_TOKEN=xx BUCKET=<unique-name> sky spot launch axolotl-spot.yaml --env HF_TOKEN --env BUCKET
+```
+
+
 ### Dataset
 
 Axolotl supports a variety of dataset formats. Below are some of the formats you can use.
@@ -210,7 +247,7 @@ Have dataset(s) in one of the following format (JSONL recommended):
   ```json
   {"instruction": "...", "input": "...", "output": "..."}
   ```
-- `sharegpt`: conversations where `from` is `human`/`gpt`
+- `sharegpt`: conversations where `from` is `human`/`gpt`. (optional: `system` to override default system prompt)
   ```json
   {"conversations": [{"from": "...", "value": "..."}]}
   ```
@@ -397,6 +434,12 @@ See [examples](examples) for quick start. It is recommended to duplicate and mod
     - path: knowrohit07/know_sql
       type: context_qa.load_v2
       train_on_split: validation
+
+  # loading from s3 or gcs
+  # s3 creds will be loaded from the system default and gcs only supports public access
+  dataset:
+    - path: s3://path_to_ds # Accepts folder with arrow/parquet or file path like above. Supports s3, gcs.
+      ...
   ```
 
 - loading
@@ -459,6 +502,15 @@ is_falcon_derived_model:
 is_llama_derived_model:
 # Please note that if you set this to true, `padding_side` will be set to "left" by default
 is_mistral_derived_model:
+is_qwen_derived_model:
+
+# optional overrides to the base model configuration
+model_config:
+  # RoPE Scaling https://github.com/huggingface/transformers/pull/24653
+  rope_scaling:
+    type: # linear | dynamic
+    factor: # float
+
 
 # Whether you are training a 4-bit GPTQ quantized model
 gptq: true
@@ -483,7 +535,7 @@ float16: true
 
 # A list of one or more datasets to finetune the model with
 datasets:
-  # HuggingFace dataset repo | "json" for local dataset, make sure to fill data_files
+  # HuggingFace dataset repo | s3://,gs:// path | "json" for local dataset, make sure to fill data_files
   - path: vicgalle/alpaca-gpt4
   # The type of prompt to use for training. [alpaca, sharegpt, gpteacher, oasst, reflection]
     type: alpaca # format | format:<prompt_style> (chat/instruct) | <prompt_strategies>.load_<load_fn>
@@ -491,9 +543,12 @@ datasets:
     data_files: # Optional[str] path to source data files
     shards: # Optional[int] number of shards to split data into
     name: # Optional[str] name of dataset configuration to load
+    train_on_split: train # Optional[str] name of dataset split to load from
 
     # Optional[str] fastchat conversation type, only used with type: sharegpt
     conversation:  # Options (see Conversation 'name'): https://github.com/lm-sys/FastChat/blob/main/fastchat/conversation.py
+    field_human: # Optional[str]. Human key to use for conversation.
+    field_model: # Optional[str]. Assistant key to use for conversation.
 
   # Custom user prompt
   - path: repo
@@ -559,6 +614,12 @@ eval_sample_packing:
 sample_packing_eff_est:
 total_num_tokens:
 
+# Passed through to transformers when loading the model when launched without accelerate
+# Use `sequential` when training w/ model parallelism to limit memory
+device_map:
+# Defines the max memory usage per gpu on the system. Passed through to transformers when loading the model.
+max_memory:
+
 # If you want to use 'lora' or 'qlora' or leave blank to train all parameters in original model
 adapter: lora
 # If you already have a lora model trained that you want to load, put that here.
@@ -606,7 +667,8 @@ wandb_mode: # "offline" to save run metadata locally and not sync to the server,
 wandb_project: # Your wandb project name
 wandb_entity: # A wandb Team name if using a Team
 wandb_watch:
-wandb_run_id: # Set the name of your wandb run
+wandb_name: # Set the name of your wandb run
+wandb_run_id: # Set the ID of your wandb run
 wandb_log_model: # "checkpoint" to log model to wandb Artifacts every `save_steps` or "end" to log only at the end of training
 
 # Where to save the full-finetuned model to
@@ -624,7 +686,8 @@ gradient_accumulation_steps: 1
 micro_batch_size: 2
 eval_batch_size:
 num_epochs: 4
-warmup_steps: 100
+warmup_steps: 100  # cannot use with warmup_ratio
+warmup_ratio: 0.05  # cannot use with warmup_steps
 learning_rate: 0.00003
 lr_quadratic_warmup:
 logging_steps:
@@ -639,6 +702,9 @@ max_steps:
 
 eval_table_size: # Approximate number of predictions sent to wandb depending on batch size. Enabled above 0. Default is 0
 eval_table_max_new_tokens: # Total number of tokens generated for predictions sent to wandb. Default is 128
+
+loss_watchdog_threshold: # High loss value, indicating the learning has broken down (a good estimate is ~2 times the loss at the start of training)
+loss_watchdog_patience: # Number of high-loss steps in a row before the trainer aborts (default: 3)
 
 # Save model as safetensors (require safetensors package)
 save_safetensors:
@@ -726,10 +792,6 @@ landmark_attention:
 # xpos RoPE see https://github.com/kaiokendev/cutoff-len-is-context-len/blob/main/util/xpos_rope_llama_monkey_patch.py
 # LLaMA only
 xpos_rope:
-# RoPE Scaling https://github.com/huggingface/transformers/pull/24653
-rope_scaling:
-  type: # linear | dynamic
-  factor: # float
 
 # Resume from a specific checkpoint dir
 resume_from_checkpoint:
@@ -902,7 +964,7 @@ wandb_mode:
 wandb_project:
 wandb_entity:
 wandb_watch:
-wandb_run_id:
+wandb_name:
 wandb_log_model:
 ```
 
