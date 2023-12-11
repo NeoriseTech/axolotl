@@ -15,6 +15,7 @@ from axolotl.cli import (
     print_axolotl_text_art,
 )
 from axolotl.common.cli import TrainerCliArgs
+from axolotl.prompt_strategies.custom_sharegpt_conversations import register_custom_conversations
 from axolotl.train import train
 
 LOG = logging.getLogger("axolotl.cli.train")
@@ -23,6 +24,7 @@ LOG = logging.getLogger("axolotl.cli.train")
 def do_cli(config: Path = Path("examples/"), **kwargs):
     # pylint: disable=duplicate-code
     print_axolotl_text_art()
+    register_custom_conversations()
     parsed_cfg = load_cfg(config, **kwargs)
     check_accelerate_default_config()
     check_user_token()
