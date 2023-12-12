@@ -13,11 +13,13 @@ from axolotl.cli import (
     print_axolotl_text_art,
 )
 from axolotl.common.cli import TrainerCliArgs
+from axolotl.prompt_strategies.custom_sharegpt_conversations import register_custom_conversations
 
 
 def do_cli(config: Path = Path("examples/"), gradio=False, **kwargs):
     # pylint: disable=duplicate-code
     print_axolotl_text_art()
+    register_custom_conversations()
     parsed_cfg = load_cfg(config, **kwargs)
     parsed_cfg.sample_packing = False
     parser = transformers.HfArgumentParser((TrainerCliArgs))

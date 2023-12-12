@@ -17,6 +17,7 @@ from axolotl.cli import (
 )
 from axolotl.common.cli import PreprocessCliArgs
 from axolotl.common.const import DEFAULT_DATASET_PREPARED_PATH
+from axolotl.prompt_strategies.custom_sharegpt_conversations import register_custom_conversations
 
 LOG = logging.getLogger("axolotl.cli.preprocess")
 
@@ -24,6 +25,7 @@ LOG = logging.getLogger("axolotl.cli.preprocess")
 def do_cli(config: Path = Path("examples/"), **kwargs):
     # pylint: disable=duplicate-code
     print_axolotl_text_art()
+    register_custom_conversations()
     parsed_cfg = load_cfg(config, **kwargs)
     check_accelerate_default_config()
     check_user_token()
