@@ -7,7 +7,7 @@ def register_custom_conversations():
         Conversation(
             name="apm",
             system_template="<classifier_prompt>{system_message}",
-            system_message="You are a helpful assistant tasked with labelling english messages",
+            system_message="You are a helpful assistant that will classify messages for a user.",
             roles=["<classifier_input>", "<classifier_label>"],
             sep_style=SeparatorStyle.NO_COLON_TWO,
             sep="",
