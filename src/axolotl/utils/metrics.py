@@ -54,23 +54,26 @@ class Metric:
             # change the 'padding token' to -100 so we need to exclude both
             mask = (label != self.tokenizer.pad_token_id) & (label != -100)
 
-            # Shift the label one position to the right because the model is predicting the
-            # next token in the sequence and we want to compare the predicted token to the label.
             # Apply the mask to exclude any padding tokens
-            label = label[1:][mask[1:]]
-            prediction = logit[:-1][mask[:-1]]
+            label = label[mask]
+            prediction = logit[mask]
 
-            # If the prediction is longer than the label, truncate the prediction
-            if len(prediction) > len(label):
-                prediction = prediction[:len(label)]
-
-            # If the label is longer than the prediction, truncate the label
-            elif len(label) > len(prediction):
-                label = label[:len(prediction)]
+            # Truncate the longer sequence so they are the same length
+            min_length = min(len(prediction), len(label))
+            label = label[:min_length]
+            prediction = prediction[:min_length]
 
             # Append to the processed labels and predictions lists
             processed_labels.append(label)
             processed_predictions.append(prediction)
+
+        # Log the first 5 predictions and references pairs
+        references_str = self.tokenizer.batch_decode(processed_labels, skip_special_tokens=True)
+        predictions_str = self.tokenizer.batch_decode(processed_predictions, skip_special_tokens=True)
+        # Log with the debug level the first 5 predictions and references pairs
+        for i in range(min(5, len(references_str))):
+            LOG.debug(f"Reference {i}: {references_str[i]}")
+            LOG.debug(f"Prediction {i}: {predictions_str[i]}")
 
         # Return the processed labels and predictions. They are arrays of arrays. Each row represents
         # a label or logit (prediction). The number of columns is different because we have truncated
@@ -96,14 +99,6 @@ class F1Metric(Metric):
 
         # Strip out padding tokens from the logits and labels and ensure each matching pair are the same length
         (predictions, references) = self._strip_padding(logits, labels)
-
-        # Log the first 10 predictions and references pairs
-        references_str = self.tokenizer.batch_decode(references, skip_special_tokens=True)
-        predictions_str = self.tokenizer.batch_decode(predictions, skip_special_tokens=True)
-        # Log with the debug level the first 10 predictions and references pairs
-        for i in range(min(10, len(references_str))):
-            LOG.info(f"Reference {i}: {references_str[i]}")
-            LOG.info(f"Prediction {i}: {predictions_str[i]}")
 
         # F1 metrics needs a single 1d array. So let's flatten them now
         references = np.concatenate(references).flatten()
