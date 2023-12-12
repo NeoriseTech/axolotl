@@ -1,8 +1,12 @@
 '''Calculate metrics during evaluation.'''
 
+import logging
+
 import evaluate
 import numpy as np
 from transformers import PreTrainedTokenizer
+
+LOG = logging.getLogger("axolotl.utils.metrics")
 
 def get_metric(metric_name: str, tokenizer: PreTrainedTokenizer):
     if metric_name is None:
@@ -92,6 +96,14 @@ class F1Metric(Metric):
 
         # Strip out padding tokens from the logits and labels and ensure each matching pair are the same length
         (predictions, references) = self._strip_padding(logits, labels)
+
+        # Log the first 10 predictions and references pairs
+        references_str = self.tokenizer.batch_decode(references, skip_special_tokens=True)
+        predictions_str = self.tokenizer.batch_decode(predictions, skip_special_tokens=True)
+        # Log with the debug level the first 10 predictions and references pairs
+        for i in range(min(10, len(references_str))):
+            LOG.info(f"Reference {i}: {references_str[i]}")
+            LOG.info(f"Prediction {i}: {predictions_str[i]}")
 
         # F1 metrics needs a single 1d array. So let's flatten them now
         references = np.concatenate(references).flatten()
