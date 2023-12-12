@@ -1,8 +1,12 @@
 '''Calculate metrics during evaluation.'''
 
+import logging
+
 import evaluate
 import numpy as np
 from transformers import PreTrainedTokenizer
+
+LOG = logging.getLogger("axolotl.utils.metrics")
 
 def get_metric(metric_name: str, tokenizer: PreTrainedTokenizer):
     if metric_name is None:
@@ -32,9 +36,8 @@ class Metric:
         return logits.argmax(dim=-1)
     
     def _strip_padding(self, logits, labels):
-        # predictions have the same shape as the labels, after the argmax(-1) has been calculated
-        # by preprocess_logits_for_metrics but we need to shift the labels because the model is predicting
-        # the next token in the sequence
+        # predictions have the same shape as the labels after the argmax(-1) has been calculated
+        # by preprocess_logits_for_metrics
 
         # Initialize lists to hold processed labels and predictions
         processed_labels = []
@@ -47,26 +50,29 @@ class Metric:
         # than including padding tokens in the calculation.
         for logit, label in zip(logits, labels):
             # Create a mask for this sample that excludes any padding tokens. The data collator can also
-            # change the 'padding token' to -100 so we need to exclude both
+            # mask the label with a -100 token so we need to exclude both when we calculate our metrics.
             mask = (label != self.tokenizer.pad_token_id) & (label != -100)
 
-            # Shift the label one position to the right because the model is predicting the
-            # next token in the sequence and we want to compare the predicted token to the label.
             # Apply the mask to exclude any padding tokens
-            label = label[1:][mask[1:]]
-            prediction = logit[:-1][mask[:-1]]
+            label = label[mask]
+            prediction = logit[mask]
 
-            # If the prediction is longer than the label, truncate the prediction
-            if len(prediction) > len(label):
-                prediction = prediction[:len(label)]
-
-            # If the label is longer than the prediction, truncate the label
-            elif len(label) > len(prediction):
-                label = label[:len(prediction)]
+            # Truncate the longer sequence so they are the same length
+            min_length = min(len(prediction), len(label))
+            label = label[:min_length]
+            prediction = prediction[:min_length]
 
             # Append to the processed labels and predictions lists
             processed_labels.append(label)
             processed_predictions.append(prediction)
+
+        # Log the first 3 predictions and references pairs
+        references_str = self.tokenizer.batch_decode(processed_labels, skip_special_tokens=True)
+        predictions_str = self.tokenizer.batch_decode(processed_predictions, skip_special_tokens=True)
+        # Log with the debug level the first 3 predictions and references pairs
+        for i in range(min(3, len(references_str))):
+            LOG.debug(f"Reference {i}: {references_str[i]}")
+            LOG.debug(f"Prediction {i}: {predictions_str[i]}")
 
         # Return the processed labels and predictions. They are arrays of arrays. Each row represents
         # a label or logit (prediction). The number of columns is different because we have truncated
