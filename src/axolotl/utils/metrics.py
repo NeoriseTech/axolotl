@@ -13,6 +13,8 @@ def get_metric(metric_name: str, tokenizer: PreTrainedTokenizer):
         return None
     if metric_name == 'f1':
         return F1Metric(tokenizer)
+    elif metric_name == 'f1combo':
+        return F1ComboMetric(tokenizer)
     elif metric_name == 'rouge':
         return RougeMetric(tokenizer)
     elif metric_name == 'bleu':
@@ -49,13 +51,17 @@ class Metric:
         # whichever of the two is longer. This may skew the metrics but it is arguably better
         # than including padding tokens in the calculation.
         for logit, label in zip(logits, labels):
-            # Create a mask for this sample that excludes any padding tokens. The data collator can also
-            # mask the label with a -100 token so we need to exclude both when we calculate our metrics.
+            # Shift the label one position to the right because the model is predicting the
+            # next token in the sequence and we want to compare the predicted token to the label.
+            label = label[1:]
+            prediction = logit[:-1]
+
+            # Create a mask for this sample that excludes any padding tokens or masking tokens (-100)
             mask = (label != self.tokenizer.pad_token_id) & (label != -100)
 
             # Apply the mask to exclude any padding tokens
             label = label[mask]
-            prediction = logit[mask]
+            prediction = prediction[mask]
 
             # Truncate the longer sequence so they are the same length
             min_length = min(len(prediction), len(label))
@@ -75,14 +81,39 @@ class Metric:
             LOG.debug(f"Prediction {i}: {predictions_str[i]}")
 
         # Return the processed labels and predictions. They are arrays of arrays. Each row represents
-        # a label or logit (prediction). The number of columns is different because we have truncated
-        # them each individually. So it is not a perfectly sized matrix.
+        # a label or logit (prediction). The number of columns is different because they represent the unmasked labels
+        # and predictions for each unique evaluation input. So it is not a perfectly sized matrix.
         return (processed_predictions, processed_labels)
 
 class F1Metric(Metric):
     def __init__(self, tokenizer: PreTrainedTokenizer):
         super().__init__(
             metric_name='f1',
+            compute_metrics=self.compute_f1_metrics,
+            optimize_higher=True,
+        )
+        self.tokenizer = tokenizer
+        # Load metrics once at init
+        self.metric= evaluate.load("f1")
+
+    def compute_f1_metrics(self, eval_preds):
+        logits, labels = eval_preds
+
+        # Strip out padding tokens from the logits and labels and ensure each matching pair are the same length
+        (predictions, references) = self._strip_padding(logits, labels)
+
+        # F1 metrics needs a single 1d array. So let's flatten them now
+        references = np.concatenate(references).flatten()
+        predictions = np.concatenate(predictions).flatten()
+
+        f1_results = self.metric.compute(predictions=predictions, references=references, average="weighted")
+
+        return f1_results
+
+class F1ComboMetric(Metric):
+    def __init__(self, tokenizer: PreTrainedTokenizer):
+        super().__init__(
+            metric_name='f1combo',
             compute_metrics=self.compute_f1_metrics,
             optimize_higher=True,
         )
@@ -108,7 +139,7 @@ class F1Metric(Metric):
         recall = self.recall_metric.compute(predictions=predictions, references=references, average="weighted", zero_division=0)["recall"]
         accuracy = self.accuracy_metric.compute(predictions=predictions, references=references)["accuracy"]
 
-        return {"f1": f1_results, "precision": precision, "recall": recall, 'accuracy': accuracy}
+        return {'f1': f1_results, 'precision': precision, 'recall': recall, 'accuracy': accuracy}
 
 class RougeMetric(Metric):
     def __init__(self, tokenizer: PreTrainedTokenizer):
@@ -139,7 +170,7 @@ class RougeMetric(Metric):
         rouge_results = self.rouge_metric.compute(predictions=predictions_str, references=references_str, use_aggregator=True)
         f1_results = self.f1_metric.compute(predictions=predictions_f1, references=references_f1, average="weighted")
 
-        # Combined both results datasets
+        # Combine both results datasets
         rouge_results.update(f1_results)
 
         return rouge_results
